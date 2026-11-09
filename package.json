@@ -1,0 +1,10 @@
+{
+  "name": "githok",
+  "version": "0.1.0",
+  "private": true,
+  "description": "像刷短视频一样发现 GitHub 开源项目",
+  "type": "module",
+  "scripts": { "start": "node server.mjs", "test": "node --test", "build": "node scripts/build-cloud.mjs" },
+  "devDependencies": { "esbuild": "0.28.2" },
+  "engines": { "node": ">=22" }
+}

@@ -1,0 +1,9 @@
+.cache/
+.env
+node_modules/
+test-results/
+backups/
+dist/
+.sites-local/
+site-release.tar.gz
+outputs/
