@@ -35,7 +35,7 @@ function cleanRepo(r) {
 }
 
 export class GitHubService {
-  constructor({ fetchImpl = fetch, token, now = () => Date.now() } = {}) {
+  constructor({ fetchImpl = (...args) => fetch(...args), token, now = () => Date.now() } = {}) {
     this.fetchImpl = fetchImpl; this.token = token; this.now = now;
     this.cache = new Map(); this.pending = new Map(); this.cooldown = new Map();
     this.ready = Promise.resolve();
@@ -52,7 +52,10 @@ export class GitHubService {
         headers: { 'User-Agent': 'GitHok/0.1 (local discovery)', Accept: raw ? 'application/vnd.github.raw+json' : 'application/vnd.github+json', 'X-GitHub-Api-Version': '2026-03-10', ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}) },
         signal: AbortSignal.timeout(15_000),
       });
-    } catch { throw new ApiError('暂时连不上 GitHub，请检查网络后重试。'); }
+    } catch (error) {
+      console.warn('GitHok GitHub transport failed:', error?.name || 'Error', error?.message || 'unknown');
+      throw new ApiError('暂时连不上 GitHub，请检查网络后重试。');
+    }
     if (response.status === 403 || response.status === 429) {
       const retry = Number(response.headers.get('retry-after'));
       const reset = Number(response.headers.get('x-ratelimit-reset')) * 1000;

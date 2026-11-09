@@ -4,6 +4,13 @@ import { createWorker, EdgeGitHubService } from '../cloud/worker.mjs';
 import { ApiError, feedParams } from '../core/github.mjs';
 
 const params=()=>feedParams(new URLSearchParams());
+test('default transport does not bind the runtime fetch function to a service instance',async t=>{
+  const original=globalThis.fetch;
+  globalThis.fetch=function(){assert.equal(this instanceof EdgeGitHubService,false);return Promise.resolve(Response.json({items:[],total_count:0}));};
+  t.after(()=>{globalThis.fetch=original;});
+  const service=new EdgeGitHubService();
+  assert.equal((await service.feed(params())).source,'github');
+});
 test('cloud routes serve embedded assets and retain validation before reading GitHub',async()=>{
   let calls=0;
   const app=createWorker({assets:{'/index.html':{type:'text/html',body:'<h1>GitHok</h1>'}},github:{feed:async()=>{calls++;return {items:[]};}}});
