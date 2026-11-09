@@ -45,3 +45,21 @@ test('malformed encoded repository paths return a client error in the cloud runt
   const app=createWorker({github:{readme:async()=>{throw Error('must not reach');}}});
   assert.equal((await app.fetch(new Request('https://test.invalid/api/readme/%ZZ/repo'))).status,400);
 });
+test('rate-limited README uses one bounded public raw fallback without forwarding credentials',async()=>{
+  const urls=[];
+  const service=new EdgeGitHubService({token:'synthetic-test-only',fetchImpl:async(url,options)=>{
+    urls.push(url);
+    if(url.startsWith('https://api.github.com/'))return new Response('{}',{status:403,headers:{'retry-after':'120'}});
+    assert.equal(options.headers.Authorization,undefined);
+    return new Response('# Real README\n'+'x'.repeat(40_000));
+  }});
+  const result=await service.readme('author','sample');
+  assert.equal(result.contentSource,'github-raw');assert.equal(result.text.length,24_000);assert.equal(result.truncated,true);
+  assert.equal(urls.length,2);assert.equal(urls[1],'https://raw.githubusercontent.com/author/sample/HEAD/README.md');
+  await service.readme('author','sample');assert.equal(urls.length,2);
+});
+test('unavailable conventional raw README preserves the original failure without scanning filenames',async()=>{
+  let calls=0;
+  const service=new EdgeGitHubService({fetchImpl:async()=>{calls++;return new Response('{}',{status:calls===1?403:404});}});
+  await assert.rejects(service.readme('author','sample'),{status:429});assert.equal(calls,2);
+});

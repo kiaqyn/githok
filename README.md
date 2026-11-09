@@ -41,6 +41,8 @@ node server.mjs
 
 GitHub 数据缓存 15 分钟，每个分页独立缓存，重复请求合并。网络或限流错误发生时，可读取不超过 7 天的旧缓存，页面明确标出历史缓存时间。缓存仅包含公开项目数据，存放于 `.cache/cache.json`，最多 80 个条目。遇到限流后按照响应头暂停对应接口请求，不自动循环重试。
 
+README API 限流或暂时不可达时，仅补查一次该公开仓库的 `HEAD/README.md` 原始文件；不转发 API 凭据，仍限制文字长度并缓存。若仓库使用其他文件名且 API 不可用，页面保留明确错误和 GitHub 原文链接。
+
 公开接口有访问频率限制，详见 [GitHub 官方说明](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)。日常大量使用时，可由你自行设置仅用于公开数据的 `GITHOK_GITHUB_TOKEN` 环境变量；不要把凭据写进前端或提交到仓库。本版本无需凭据即可启动。
 
 ## 本地验证

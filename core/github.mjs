@@ -108,8 +108,28 @@ export class GitHubService {
     if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(owner) || !/^[A-Za-z0-9_.-]{1,100}$/.test(repo) || repo === '.' || repo === '..') throw new ApiError('项目地址无效。', 400);
     const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/readme`;
     return this.cached('readme:' + owner + '/' + repo, async () => {
-      const text = await this.request(path, { raw: true });
-      return { text: text.slice(0, 24_000), truncated: text.length > 24_000 };
+      try {
+        const text = await this.request(path, { raw: true });
+        return { text: text.slice(0, 24_000), truncated: text.length > 24_000, contentSource:'github-api' };
+      } catch (error) {
+        if (!(error instanceof ApiError) || ![429,502].includes(error.status)) throw error;
+        // One conventional public README fallback; never forward API credentials to a different host.
+        const url = `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/HEAD/README.md`;
+        let response;
+        try { response = await this.fetchImpl(url, { headers:{ Accept:'text/plain' }, signal:AbortSignal.timeout(15_000) }); } catch { throw error; }
+        if (!response.ok || !response.body) throw error;
+        const reader=response.body.getReader(), decoder=new TextDecoder();
+        let text='', truncated=false;
+        try {
+          while (true) {
+            const part=await reader.read();
+            if (part.done) { text+=decoder.decode();break; }
+            text+=decoder.decode(part.value,{stream:true});
+            if (text.length>24_000) { truncated=true;await reader.cancel();break; }
+          }
+        } finally { reader.releaseLock(); }
+        return { text:text.slice(0,24_000), truncated:truncated||text.length>24_000, contentSource:'github-raw' };
+      }
     });
   }
 }
