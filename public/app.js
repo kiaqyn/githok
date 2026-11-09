@@ -1,4 +1,7 @@
+import { chooseLanguage, translate, relativeUpdate, localizedError, locales } from './i18n.js';
+
 const paths = {
+  globe:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a18 18 0 0 1 0 18 18 18 0 0 1 0-18"/>',
   compass:'<circle cx="12" cy="12" r="9"/><path d="m16 8-2.4 5.6L8 16l2.4-5.6Z"/>',
   bookmark:'<path d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16l-6-4Z"/>',
   clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
@@ -26,17 +29,26 @@ const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const repoValid = r => r && /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(r.owner) && /^[A-Za-z0-9_.-]{1,100}$/.test(r.name) && Number.isFinite(r.id) && Array.isArray(r.topics);
 let storageWorks = true;
+function storedLanguage(){try{return localStorage.getItem('githok:language');}catch{return null;}}
+let language=chooseLanguage(storedLanguage(),navigator.languages||[navigator.language]);
+const t=(key,values)=>translate(language,key,values);
+const errorText=message=>localizedError(message,language);
+const description=r=>!r.description||r.description==='作者暂未填写项目介绍，可以打开 README 了解更多。'?t('noDescription'):r.description;
+const projectLanguage=r=>!r.language||r.language==='未标注'?t('unspecified'):r.language;
+const projectLicense=r=>!r.license||r.license==='未标注许可证'?t('noLicense'):r.license;
+function clock(date){const value=new Date(date);return Number.isFinite(value.getTime())?value.toLocaleTimeString(locales[language],{hour:'2-digit',minute:'2-digit'}):t('unknownTime');}
 function loadLocal(key) { try { const value = JSON.parse(localStorage.getItem('githok:' + key) || '[]'); return Array.isArray(value) ? value.filter(repoValid).slice(0, 300) : []; } catch { storageWorks = false; return []; } }
 function saveLocal(key, data) { try { localStorage.setItem('githok:' + key, JSON.stringify(data)); return true; } catch { storageWorks = false; return false; } }
 const state = { view:'discover', topic:'all', mode:'popular', query:'', localQuery:'', feed:[], saved:loadLocal('saved'), history:loadLocal('history'), indexes:{discover:0,saved:0,history:0}, page:0, hasMore:false, loading:false, appending:false, error:null, meta:null, generation:0 };
-let requestController, readmeController, toastTimer, wheelAt=0, lastRecorded=null;
+let requestController, readmeController, toastTimer, toastState=null, detailState=null, infoKind=null, wheelAt=0, lastRecorded=null;
 
 function repoURL(r) { return `https://github.com/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.name)}`; }
-function formatNumber(n) { return new Intl.NumberFormat('en', {notation:'compact', maximumFractionDigits:1}).format(Number(n) || 0); }
-function when(date) { const n = new Date(date).getTime(); if (!Number.isFinite(n)) return '时间未知'; const days=Math.max(0,Math.floor((Date.now()-n)/86_400_000)); return days===0?'今天更新':days===1?'昨天更新':days<30?`${days} 天前更新`:days<365?`${Math.floor(days/30)} 个月前更新`:`${Math.floor(days/365)} 年前更新`; }
+function formatNumber(n) { return new Intl.NumberFormat(locales[language], {notation:'compact', maximumFractionDigits:1}).format(Number(n) || 0); }
+function when(date) { return relativeUpdate(date,language); }
 function currentItems() { if (state.view==='discover') return state.feed; const items=state[state.view]; const q=state.localQuery.toLocaleLowerCase(); return q?items.filter(r=>[r.name,r.owner,r.description,...r.topics].join(' ').toLocaleLowerCase().includes(q)):items; }
 function current() { return currentItems()[state.indexes[state.view]]; }
-function toast(message) { clearTimeout(toastTimer); $('toast').textContent=message; $('toast').hidden=false; toastTimer=setTimeout(()=>$('toast').hidden=true,3200); }
+function renderToast(){if(!toastState)return;const {key,values}=toastState;$('toast').textContent=key==='requestError'?errorText(values.message)+(values.retryAt?' '+t('retryLater',{time:clock(values.retryAt)}):''):t(key,values);}
+function toast(key,values={}) { clearTimeout(toastTimer); toastState={key,values};renderToast();$('toast').hidden=false;toastTimer=setTimeout(()=>{$('toast').hidden=true;toastState=null;},3200); }
 function saved(r) { return state.saved.some(x=>x.id===r.id); }
 function recordHistory(r) { if (state.view==='history' || lastRecorded===r.id) return; lastRecorded=r.id; state.history=[r,...state.history.filter(x=>x.id!==r.id)].slice(0,200); saveLocal('history',state.history); }
 
@@ -47,16 +59,16 @@ function renderCard(r) {
   const topics=r.topics.slice(0,4);
   const avatar=/^https:\/\/avatars\.githubusercontent\.com\//.test(r.avatar||'')?r.avatar:'/favicon.svg';
   const nameLength=r.name.length>24?' long-title':'';
-  const label=state.view==='saved'?'我的收藏':state.view==='history'?'浏览足迹':state.query?'搜索发现':state.mode==='new'?'新鲜出炉':state.mode==='gems'?'小众宝藏':'开源精选';
+  const label=t(state.view==='saved'?'saved':state.view==='history'?'history':state.query?'searchBadge':state.mode==='new'?'newBadge':state.mode==='gems'?'gemsBadge':'featuredBadge');
   $('feed-host').innerHTML=`<article class="project-card palette-${palette}">
     <div class="project-poster"><div class="poster-grid"></div><div class="poster-stamp">OPEN SOURCE / ${String(state.indexes[state.view]+1).padStart(2,'0')}</div>
       <div class="poster-copy"><div class="poster-kicker">${esc(r.owner)}</div><h2 class="poster-title${nameLength}">${esc(r.name)}</h2><div class="poster-topics">${esc(topics.slice(0,3).map(t=>'#'+t).join('  ')) || 'Ideas worth exploring.'}</div></div>
       <div class="poster-art" aria-hidden="true"><div class="art-back"></div><div class="art-mid"></div><div class="art-front">${esc(mark)}</div><div class="art-dot">${icon('sparkles')}</div></div><div class="poster-mark">A LITTLE DISCOVERY. A LOT OF POSSIBILITY.</div>
     </div>
     <div class="card-content"><div class="repo-identity"><img class="owner-avatar" src="${esc(avatar)}" alt="" width="29" height="29"><span class="repo-owner">${esc(r.owner)} <span>/</span> <strong>${esc(r.name)}</strong></span><span class="repo-label">${label}</span></div>
-    <p class="repo-description" title="${esc(r.description)}">${esc(r.description)}</p><div class="repo-tags">${topics.map(t=>`<span>${esc(t)}</span>`).join('')}</div>
-    <div class="repo-bottom"><div class="repo-stats"><span class="stat star-stat" title="${esc(r.stars)} 个 GitHub 星标">${icon('star')}${formatNumber(r.stars)}</span><span class="stat fork-stat" title="${esc(r.forks)} 个 Fork">${icon('fork')}${formatNumber(r.forks)}</span><span class="stat"><i class="lang-dot ${['python','javascript','typescript','rust','go'].includes(language)?'lang-'+language:''}"></i>${esc(r.language)}</span></div><a class="open-repo" href="${repoURL(r)}" target="_blank" rel="noopener noreferrer">去 GitHub 看看 ${icon('arrow-up-right')}</a></div>
-    <div class="repo-meta"><span>${esc(r.license)}</span><span class="separator"></span><span>${when(r.pushedAt)}</span><span class="separator"></span><span>作者原始介绍</span></div></div>
+    <p class="repo-description" title="${esc(description(r))}">${esc(description(r))}</p><div class="repo-tags">${topics.map(t=>`<span>${esc(t)}</span>`).join('')}</div>
+    <div class="repo-bottom"><div class="repo-stats"><span class="stat star-stat" title="${esc(t('starCount',{count:r.stars}))}">${icon('star')}${formatNumber(r.stars)}</span><span class="stat fork-stat" title="${esc(t('forkCount',{count:r.forks}))}">${icon('fork')}${formatNumber(r.forks)}</span><span class="stat"><i class="lang-dot ${['python','javascript','typescript','rust','go'].includes(language)?'lang-'+language:''}"></i>${esc(projectLanguage(r))}</span></div><a class="open-repo" href="${repoURL(r)}" target="_blank" rel="noopener noreferrer">${t('openRepo')} ${icon('arrow-up-right')}</a></div>
+    <div class="repo-meta"><span>${esc(projectLicense(r))}</span><span class="separator"></span><span>${when(r.pushedAt)}</span><span class="separator"></span><span>${t('authorDescription')}</span></div></div>
   </article>`;
   $('feed-host').querySelector('.owner-avatar').addEventListener('error',e=>{ e.target.src='/favicon.svg'; },{once:true});
   updateActions(r); recordHistory(r);
@@ -64,12 +76,12 @@ function renderCard(r) {
 function updateActions(r) {
   const isSaved=saved(r);
   $('save-button').setAttribute('aria-pressed',String(isSaved));
-  $('save-button').setAttribute('aria-label',isSaved?'取消收藏项目':'收藏项目');
-  $('save-label').textContent=isSaved?'已收藏':'收藏';
+  $('save-button').setAttribute('aria-label',t(isSaved?'unsaveProject':'saveProject'));
+  $('save-label').textContent=t(isSaved?'savedState':'save');
   $('prev-button').disabled=state.indexes[state.view]===0;
   $('next-button').disabled=state.appending || (state.indexes[state.view]>=currentItems().length-1 && !(state.view==='discover'&&state.hasMore));
 }
-function empty(title,message,buttonLabel='重新加载',action='reload',symbol='compass') {
+function empty(title,message,buttonLabel=t('reload'),action='reload',symbol='compass') {
   $('feed-host').innerHTML=`<div class="empty-card">${icon(symbol)}<h2>${esc(title)}</h2><p>${esc(message)}</p><button class="primary-button" id="empty-action">${esc(buttonLabel)}</button></div>`;
   $('empty-action').addEventListener('click',()=>{
     if(action==='discover')return switchView('discover');
@@ -81,30 +93,30 @@ function render() {
   $('saved-count').textContent=state.saved.length;
   $('action-rail').hidden=true; $('feed-position').textContent=''; $('source-note').classList.remove('warning');
   if (state.loading && state.view==='discover') {
-    $('feed-host').innerHTML='<div class="skeleton-card"><div class="skeleton-poster"></div><div class="skeleton-line"></div><div class="skeleton-line short"></div><p>正在开源世界里捞好东西…</p></div>';
-    $('source-note').textContent='正在读取 GitHub 公开项目…'; return;
+    $('feed-host').innerHTML=`<div class="skeleton-card"><div class="skeleton-poster"></div><div class="skeleton-line"></div><div class="skeleton-line short"></div><p>${t('loadingFeed')}</p></div>`;
+    $('source-note').textContent=t('readingGithub'); return;
   }
   if (state.error && state.view==='discover') {
-    const retry=state.error.retryAt?` 可重试时间：${new Date(state.error.retryAt).toLocaleTimeString('zh-CN')}`:'';
-    empty('这次没连上开源世界',state.error.message+retry,'再试一次','reload','refresh');
-    $('source-note').textContent='你也可以先去「我的收藏」继续探索。'; return;
+    const retry=state.error.retryAt?t('retryTime',{time:clock(state.error.retryAt)}):'';
+    empty(t('connectionTitle'),errorText(state.error.message)+retry,t('tryAgain'),'reload','refresh');
+    $('source-note').textContent=t('savedOffline'); return;
   }
   const items=currentItems();
   state.indexes[state.view]=Math.max(0,Math.min(state.indexes[state.view],items.length-1));
   if (!items.length) {
-    if (state.view==='saved') empty(state.localQuery?'收藏里暂时没找到':'先收藏一点好东西','发现喜欢的项目时，点一下右侧书签。你的灵感仓库就从这里开始。','去发现项目','discover','bookmark');
-    else if (state.view==='history') empty(state.localQuery?'足迹里暂时没找到':'还没有留下足迹','看过的项目会出现在这里，下次想起来，还找得到。','去发现项目','discover','clock');
-    else empty('换个方向，也许有惊喜','当前条件没有找到项目。试试更短的关键词或其他分类。','清空筛选','clear','search');
+    if (state.view==='saved') empty(t(state.localQuery?'savedNoMatch':'savedEmpty'),t('savedEmptyBody'),t('goDiscover'),'discover','bookmark');
+    else if (state.view==='history') empty(t(state.localQuery?'historyNoMatch':'historyEmpty'),t('historyEmptyBody'),t('goDiscover'),'discover','clock');
+    else empty(t('noResults'),t('noResultsBody'),t('clearFilters'),'clear','search');
     $('source-note').textContent=''; return;
   }
   const r=current(); renderCard(r); $('action-rail').hidden=false;
-  $('feed-position').textContent=`${String(state.indexes[state.view]+1).padStart(2,'0')} / ${String(items.length).padStart(2,'0')}${state.view==='discover'&&state.hasMore?' +':''}${state.appending?' · 正在加载…':''}`;
+  $('feed-position').textContent=`${String(state.indexes[state.view]+1).padStart(2,'0')} / ${String(items.length).padStart(2,'0')}${state.view==='discover'&&state.hasMore?' +':''}${state.appending?t('loadingMore'):''}`;
   if (state.view==='discover' && state.meta) {
-    const rules=state.query?'关键词匹配 · 不限星标':state.mode==='new'?'近 90 天创建 · 星标 >10':state.mode==='gems'?'50–5,000 星标 · 近半年活跃':'星标 >1,000 · 近半年活跃';
-    const time=new Date(state.meta.fetchedAt).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
-    $('source-note').textContent=`${rules} · ${state.query?'按 GitHub 相关度排序':'按星标数排序'} · ${time} ${state.meta.stale?'的历史缓存':state.meta.source==='cache'?'缓存数据':'获取自 GitHub'}${state.meta.incomplete?' · GitHub 返回部分搜索结果':''}${state.meta.stale?' · '+state.meta.warning:''}`;
+    const rules=t(state.query?'searchRule':state.mode==='new'?'newRule':state.mode==='gems'?'gemsRule':'popularRule');
+    const time=clock(state.meta.fetchedAt);
+    $('source-note').textContent=`${rules} · ${t(state.query?'relevanceSort':'starsSort')} · ${t(state.meta.stale?'historicCache':state.meta.source==='cache'?'cachedAt':'fetchedAt',{time})}${state.meta.incomplete?t('partialResults'):''}${state.meta.stale?' · '+errorText(state.meta.warning):''}`;
     $('source-note').classList.toggle('warning',!!state.meta.stale);
-  } else $('source-note').textContent=state.view==='saved'?'收藏仅保存在此浏览器，不会修改你的 GitHub 星标。':'最近 200 个浏览项目，保存在此浏览器。';
+  } else $('source-note').textContent=t(state.view==='saved'?'savedNote':'historyNote');
 }
 function syncControls() {
   document.querySelectorAll('[data-topic]').forEach(b=>{const active=b.dataset.topic===state.topic;b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));});
@@ -112,7 +124,33 @@ function syncControls() {
   $('clear-search').hidden=!$('search').value;
   $('mode-tabs').hidden=!!state.query;
   $('search-caption').hidden=!state.query;
-  $('search-caption').textContent=`“${state.query}” 的搜索结果`;
+  $('search-caption').textContent=t('searchResults',{query:state.query});
+}
+function updateViewCopy(){
+  $('breadcrumb-view').textContent=t(state.view==='discover'?'forYou':state.view);
+  $('view-title').innerHTML=t(state.view+'Heading');
+  $('view-description').textContent=t(state.view+'Description');
+  const searchKey=state.view==='discover'?'searchGithub':state.view==='saved'?'searchSaved':'searchHistory';
+  $('search').setAttribute('aria-label',t(searchKey));
+  $('search').placeholder=t(state.view==='discover'?'searchPlaceholder':state.view==='saved'?'searchSavedPlaceholder':'searchHistoryPlaceholder');
+}
+function applyLanguage(){
+  document.documentElement.lang=locales[language];document.title=t('pageTitle');
+  document.querySelector('meta[name="description"]').content=t('metaDescription');
+  document.querySelectorAll('[data-i18n]').forEach(el=>el.textContent=t(el.dataset.i18n));
+  document.querySelectorAll('[data-i18n-html]').forEach(el=>el.innerHTML=t(el.dataset.i18nHtml));
+  document.querySelectorAll('[data-i18n-aria]').forEach(el=>el.setAttribute('aria-label',t(el.dataset.i18nAria)));
+  document.querySelectorAll('[data-i18n-title]').forEach(el=>el.title=t(el.dataset.i18nTitle));
+  $('language-label').textContent=language==='zh'?'EN':'中文';
+  $('language-toggle').setAttribute('aria-label',t('switchLanguage'));$('language-toggle').title=t('switchLanguage');
+  updateViewCopy();syncControls();render();renderToast();
+  if($('detail-dialog').open&&detailState)renderDetail();
+  if($('info-dialog').open&&infoKind)renderInfo();
+}
+function setLanguage(next){
+  if(!Object.hasOwn(locales,next))return;
+  language=next;try{localStorage.setItem('githok:language',next);}catch{}
+  applyLanguage();
 }
 async function getFeed(page,signal) {
   const params=new URLSearchParams({topic:state.topic,mode:state.mode,q:state.query,page:String(page)});
@@ -140,7 +178,7 @@ async function appendFeed() {
     const ids=new Set(state.feed.map(r=>r.id));
     state.feed.push(...data.items.filter(repoValid).filter(r=>!ids.has(r.id)));
     state.page=data.page;state.hasMore=data.hasMore;state.meta=data;return true;
-  }catch(e){if(e.name!=='AbortError')toast(e.message+(e.retryAt?` ${new Date(e.retryAt).toLocaleTimeString('zh-CN')} 后再试。`:''));return false;}
+  }catch(e){if(e.name!=='AbortError')toast('requestError',{message:e.message,retryAt:e.retryAt});return false;}
   finally{if(generation===state.generation){state.appending=false;render();}}
 }
 async function move(delta) {
@@ -156,21 +194,19 @@ function switchView(view) {
   if(state.view===view)return;
   state.view=view;state.localQuery='';
   document.querySelectorAll('[data-view]').forEach(b=>{const active=b.dataset.view===view;b.classList.toggle('active',active);active?b.setAttribute('aria-current','page'):b.removeAttribute('aria-current');});
-  const copy={discover:['为你发现','好项目，<span>划着看。</span>','少一点大海捞针，多一点不期而遇。'],saved:['我的收藏','灵感，<span>先存起来。</span>','每一个收藏，都是一个「我想试试」。'],history:['浏览足迹','那些项目，<span>还在这里。</span>','不小心划走的灵感，也能回头找到。']}[view];
-  $('breadcrumb-view').textContent=copy[0];$('view-title').innerHTML=copy[1];$('view-description').textContent=copy[2];
-  $('discovery-controls').hidden=view!=='discover';$('search').value=view==='discover'?state.query:'';$('search').placeholder=view==='discover'?'搜点感兴趣的…':'搜索'+copy[0]+'…';$('search').setAttribute('aria-label',view==='discover'?'搜索 GitHub 项目':'搜索'+copy[0]);syncControls();render();
+  $('discovery-controls').hidden=view!=='discover';$('search').value=view==='discover'?state.query:'';updateViewCopy();syncControls();render();
 }
 function toggleSave() {
   const r=current();if(!r)return;
   const had=saved(r);
-  if(!had&&state.saved.length>=300){toast('已经收藏了 300 个项目，请先整理一些收藏。');return;}
+  if(!had&&state.saved.length>=300){toast('savedLimit');return;}
   state.saved=had?state.saved.filter(x=>x.id!==r.id):[r,...state.saved];
-  const persisted=saveLocal('saved',state.saved);render();toast(persisted?(had?'已取消收藏':'灵感 +1，已收入收藏'):had?'本次已取消收藏；浏览器无法保存更改。':'已临时收藏；浏览器存储不可用，关闭后可能丢失。');
+  const persisted=saveLocal('saved',state.saved);render();toast(persisted?(had?'removed':'added'):had?'removedTemporary':'addedTemporary');
 }
 async function share() {
   const r=current();if(!r)return;
-  try{await navigator.clipboard.writeText(repoURL(r));toast('项目链接已复制，分享这份发现。');}
-  catch{showInfo('项目链接',`<p>长按或选中下方链接即可复制：</p><p><a href="${repoURL(r)}" target="_blank" rel="noopener noreferrer">${esc(repoURL(r))}</a></p>`);}
+  try{await navigator.clipboard.writeText(repoURL(r));toast('copied');}
+  catch{showInfo('link',r);}
 }
 
 function appendInline(parent,text,base) {
@@ -193,24 +229,44 @@ function renderMarkdown(text,repo) {
     const li=line.match(/^\s*(?:[-*+] |\d+\. )(.+)$/);if(li){if(paragraph.length)flush();if(!list){list=document.createElement('ul');target.append(list);}const item=document.createElement('li');appendInline(item,li[1],base);list.append(item);continue;}
     paragraph.push(line);
   }flush();if(code){const pre=document.createElement('pre');pre.textContent=code.join('\n');target.append(pre);}
-  const note=document.createElement('p');note.className='readme-note';note.textContent='文字预览 · 图片与完整排版请查看 GitHub 原文。';target.append(note);
+  const note=document.createElement('p');note.className='readme-note';note.textContent=t('textPreview');target.append(note);
 }
 async function openDetail() {
   const r=current();if(!r)return;
   readmeController?.abort();readmeController=new AbortController();
-  $('detail-title').textContent=r.owner+' / '+r.name;
-  $('detail-meta').innerHTML=`<p class="detail-description">${esc(r.description)}</p><div class="detail-stats"><span>★ ${Number(r.stars).toLocaleString()} 星标</span><span>${esc(r.language)}</span><span>${esc(r.license)}</span><span>${when(r.pushedAt)}</span></div><div class="detail-links"><a class="primary-button" href="${repoURL(r)}" target="_blank" rel="noopener noreferrer">打开 GitHub ${icon('arrow-up-right')}</a>${r.homepage&&/^https?:\/\//i.test(r.homepage)?`<a class="secondary-button" href="${esc(r.homepage)}" target="_blank" rel="noopener noreferrer">项目网站 ↗</a>`:''}</div>`;
-  $('original-readme').href=repoURL(r)+'#readme';$('readme-content').innerHTML='<p class="dialog-loading">正在读取原作者 README…</p>';
+  const detail={repo:r,loading:true,data:null,error:null};detailState=detail;renderDetail();
   $('detail-dialog').showModal();$('detail-dialog').scrollTop=0;
   try{
     const response=await fetch(`/api/readme/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.name)}`,{signal:readmeController.signal});const data=await response.json();
-    if(!response.ok)throw new Error(data.error||'README 暂时无法读取。');renderMarkdown(data.text,r);
-    if(data.truncated){const note=document.createElement('p');note.className='readme-note';note.textContent='README 较长，此处展示前 24,000 字符。';$('readme-content').append(note);}
-    if(data.stale){const note=document.createElement('p');note.className='readme-note';note.textContent='当前为历史缓存：'+new Date(data.fetchedAt).toLocaleString('zh-CN');$('readme-content').prepend(note);}
-  }catch(e){if(e.name!=='AbortError')$('readme-content').textContent=e.message+' 你仍然可以打开 GitHub 原文。';}
+    if(!response.ok)throw new Error(data.error||'README 暂时无法读取。');detail.data=data;
+  }catch(e){if(e.name==='AbortError')return;detail.error=e.message;}
+  if(detailState===detail){detail.loading=false;renderDetail();}
 }
-function showInfo(title,html){$('info-title').textContent=title;$('info-content').innerHTML=html;$('info-dialog').showModal();}
-function showHelp(){showInfo('划起来，就这么简单。','<p>一次认识一个开源项目。看到喜欢的，收藏起来；想深入了解，打开 README 或原仓库。</p><div class="shortcut-row"><span>下一个项目</span><span><kbd>↓</kbd> <kbd>J</kbd> <kbd>空格</kbd></span></div><div class="shortcut-row"><span>上一个项目</span><span><kbd>↑</kbd> <kbd>K</kbd></span></div><div class="shortcut-row"><span>收藏 / 取消收藏</span><kbd>B</kbd></div><div class="shortcut-row"><span>查看 README</span><kbd>R</kbd></div><div class="shortcut-row"><span>搜索</span><kbd>/</kbd></div><p>也支持鼠标滚轮和手机上下滑动。所有收藏和足迹都保存在当前浏览器。</p>');}
+function renderDetail(){
+  const {repo:r,data,loading,error}=detailState;
+  $('detail-title').textContent=r.owner+' / '+r.name;
+  $('detail-meta').innerHTML=`<p class="detail-description">${esc(description(r))}</p><div class="detail-stats"><span>★ ${Number(r.stars).toLocaleString(locales[language])} ${t('stars')}</span><span>${esc(projectLanguage(r))}</span><span>${esc(projectLicense(r))}</span><span>${when(r.pushedAt)}</span></div><div class="detail-links"><a class="primary-button" href="${repoURL(r)}" target="_blank" rel="noopener noreferrer">${t('openGithub')} ${icon('arrow-up-right')}</a>${r.homepage&&/^https?:\/\//i.test(r.homepage)?`<a class="secondary-button" href="${esc(r.homepage)}" target="_blank" rel="noopener noreferrer">${t('projectWebsite')}</a>`:''}</div>`;
+  $('original-readme').href=repoURL(r)+'#readme';
+  if(loading){$('readme-content').innerHTML=`<p class="dialog-loading">${t('readmeLoading')}</p>`;return;}
+  if(error){$('readme-content').textContent=errorText(error)+' '+t('openOriginalAnyway');return;}
+  if(!data)return;
+  renderMarkdown(data.text,r);
+  if(data.truncated){const note=document.createElement('p');note.className='readme-note';note.textContent=t('readmeTruncated');$('readme-content').append(note);}
+  if(data.stale){const note=document.createElement('p');note.className='readme-note';note.textContent=t('readmeCache',{time:new Date(data.fetchedAt).toLocaleString(locales[language])});$('readme-content').prepend(note);}
+}
+function showInfo(type,repo=null){infoKind={type,repo};renderInfo();$('info-dialog').showModal();}
+function renderInfo(){
+  const {type,repo}=infoKind;
+  if(type==='link'){
+    $('info-title').textContent=t('linkTitle');$('info-content').innerHTML=`<p>${t('linkInstructions')}</p><p><a href="${repoURL(repo)}" target="_blank" rel="noopener noreferrer">${esc(repoURL(repo))}</a></p>`;return;
+  }
+  if(type==='help'){
+    const rows=[['next','<kbd>↓</kbd> <kbd>J</kbd> <kbd>'+t('spaceKey')+'</kbd>'],['previous','<kbd>↑</kbd> <kbd>K</kbd>'],['toggleSave','<kbd>B</kbd>'],['readReadme','<kbd>R</kbd>'],['search','<kbd>/</kbd>']];
+    $('info-title').textContent=t('helpTitle');$('info-content').innerHTML=`<p>${t('helpIntro')}</p>${rows.map(([key,keys])=>`<div class="shortcut-row"><span>${t(key)}</span><span>${keys}</span></div>`).join('')}<p>${t('helpFooter')}</p>`;return;
+  }
+  $('info-title').textContent=t('aboutTitle');$('info-content').innerHTML=`<p>${t('aboutIntro')}</p><h3>${t('aboutRecommendations')}</h3><p>${t('aboutRules')}</p><h3>${t('aboutYourData')}</h3><p>${t('aboutStorage')}</p><p>${t('aboutCache')}</p><p><a href="https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api" target="_blank" rel="noopener noreferrer">${t('apiDocs')}</a></p>`;
+}
+function showHelp(){showInfo('help');}
 
 document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view)));
 document.querySelectorAll('[data-topic]').forEach(b=>b.addEventListener('click',()=>{if(state.topic===b.dataset.topic)return;state.topic=b.dataset.topic;syncControls();loadFeed();}));
@@ -221,7 +277,8 @@ $('clear-search').addEventListener('click',()=>{$('search').value='';$('search-f
 $('save-button').addEventListener('click',toggleSave);$('share-button').addEventListener('click',share);$('readme-button').addEventListener('click',openDetail);
 $('prev-button').addEventListener('click',()=>move(-1));$('next-button').addEventListener('click',()=>move(1));
 $('help-button').addEventListener('click',showHelp);
-$('about-button').addEventListener('click',()=>showInfo('GitHok · 让发现更轻松','<p>一个把 GitHub 变成灵感信息流的小应用。项目介绍、星标、语言、许可证和 README 均来自 GitHub 公开接口。</p><h3>推荐从哪里来？</h3><p>热门精选：近半年有更新、超过 1,000 星标；最近上新：近 90 天创建、超过 10 星标；小众宝藏：近半年有更新、50–5,000 星标。均按总星标数排序，不代表每日涨幅。兴趣分类匹配作者填写的 topic。</p><h3>你的数据</h3><p>收藏与浏览足迹保存在此浏览器，不会替你登录 GitHub 或添加星标。无 AI 翻译或自动生成的项目评测。</p><p>数据缓存 15 分钟；GitHub 暂时不可用时，会标明历史缓存时间。</p><p><a href="https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api" target="_blank" rel="noopener noreferrer">GitHub 数据与额度说明 ↗</a></p>'));
+$('about-button').addEventListener('click',()=>showInfo('about'));
+$('language-toggle').addEventListener('click',()=>setLanguage(language==='zh'?'en':'zh'));
 document.querySelectorAll('.close-dialog').forEach(b=>b.addEventListener('click',()=>b.closest('dialog').close()));
 document.querySelectorAll('dialog').forEach(d=>d.addEventListener('click',e=>{if(e.target===d){const r=d.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();}}));
 $('detail-dialog').addEventListener('close',()=>readmeController?.abort());
@@ -241,5 +298,5 @@ $('feed-layout').addEventListener('wheel',e=>{
 let touchStart=null;
 $('feed-host').addEventListener('touchstart',e=>{if(e.touches.length===1&&!e.target.closest('button,a'))touchStart={x:e.touches[0].clientX,y:e.touches[0].clientY};},{passive:true});
 $('feed-host').addEventListener('touchend',e=>{if(!touchStart)return;const dx=e.changedTouches[0].clientX-touchStart.x,dy=e.changedTouches[0].clientY-touchStart.y;touchStart=null;if(Math.abs(dy)>65&&Math.abs(dy)>Math.abs(dx)*1.5)move(dy<0?1:-1);},{passive:true});
-syncControls();loadFeed();
-if(!storageWorks)toast('浏览器存储暂不可用，收藏可能只在本次打开期间保留。');
+applyLanguage();loadFeed();
+if(!storageWorks)toast('storageUnavailable');

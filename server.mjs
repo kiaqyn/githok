@@ -56,7 +56,7 @@ export function createServer({ github = new GitHubService() } = {}) {
       if (url.pathname === '/api/feed') return json(200, await github.feed(feedParams(url.searchParams)));
       const match = url.pathname.match(/^\/api\/readme\/([^/]+)\/([^/]+)$/);
       if (match) return json(200, await github.readme(decodeURIComponent(match[1]), decodeURIComponent(match[2])));
-      const assets = { '/': 'index.html', '/index.html': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css', '/favicon.svg': 'favicon.svg', '/manifest.webmanifest': 'manifest.webmanifest' };
+      const assets = { '/': 'index.html', '/index.html': 'index.html', '/app.js': 'app.js', '/i18n.js':'i18n.js', '/style.css': 'style.css', '/favicon.svg': 'favicon.svg', '/manifest.webmanifest': 'manifest.webmanifest' };
       if (!assets[url.pathname]) return json(404, { error: '页面不存在。' });
       const file = resolve(ROOT, 'public', assets[url.pathname]);
       const body = await readFile(file);

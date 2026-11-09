@@ -6,7 +6,7 @@ import { build } from 'esbuild';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const hosting=JSON.parse(await readFile(resolve(root,'.openai/hosting.json'),'utf8'));
 if(!hosting.project_id || hosting.static)throw new Error('Worker hosting requires a project_id and no static directory.');
-const files={ 'index.html':'text/html; charset=utf-8','app.js':'text/javascript; charset=utf-8','style.css':'text/css; charset=utf-8','favicon.svg':'image/svg+xml','manifest.webmanifest':'application/manifest+json' };
+const files={ 'index.html':'text/html; charset=utf-8','app.js':'text/javascript; charset=utf-8','i18n.js':'text/javascript; charset=utf-8','style.css':'text/css; charset=utf-8','favicon.svg':'image/svg+xml','manifest.webmanifest':'application/manifest+json' };
 const assets={};
 for(const [name,type] of Object.entries(files))assets['/'+name]={type,body:await readFile(resolve(root,'public',name),'utf8')};
 let seed=null;
