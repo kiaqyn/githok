@@ -4,7 +4,7 @@
 
 ## iPhone 与线上版本
 
-项目提供 Sites 私人部署，部署完成后可在 iPhone Safari 中通过 HTTPS 网址访问，用创建该站点的 ChatGPT 账号登录。不需要让手机连接电脑的本地端口；`127.0.0.1` 仅适用于运行服务的电脑本身。
+线上演示：[打开 GitHok](https://githok-jiao.qynily.chatgpt.site)。网站已公开，可在 iPhone Safari 或桌面浏览器中直接访问，无需登录 ChatGPT。不需要让手机连接电脑的本地端口；`127.0.0.1` 仅适用于运行服务的电脑本身。
 
 线上入口由 Sites 返回的部署结果确定，部署状态记录在本地 `outputs/phone-deployment.json`。线上使用同一套检索逻辑和前端，通过 Cloudflare Worker 运行，使用边缘缓存。默认公开项目列表随构建保存一份带时间戳的真实快照，仅在上游失败时作为明确标注的历史缓存回退，超过七天不再使用。
 
@@ -21,6 +21,12 @@ node server.mjs
 如需临时启用中文简介与速览，可双击 **start-githok-ai.cmd**（或运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\start-githok-ai.ps1`），按提示隐藏输入凭据与模型配置；密钥只留在当前运行进程内存中，不会保存进任何文件。
 
 浏览器打开 **http://127.0.0.1:4317**。关闭运行窗口或按 Ctrl+C 停止服务。若端口冲突，可先设置 `$env:PORT='4318'` 再运行。
+
+## 产品介绍短片
+
+[promo/githok-keynote.html](promo/githok-keynote.html) 是约 48 秒的单文件 HTML 产品短片，内嵌字体、品牌图片和真实网页截图，可离线打开。包含播放、暂停、拖动进度、全屏与静音控制，配乐由 Web Audio 在本地生成，不依赖外部模型接口。MP4 导出文件保存在本地 outputs 目录，不提交到源码仓库。
+
+线上目前支持发现、筛选搜索、README 原文、本地收藏和浏览足迹。AI 中文生成服务和云端 GitHub 登录／真实 Star 尚未启用，界面会明确提示。中文速览请求有 30 秒的前端等待上限；超时保留原文，且不会自动循环调用收费服务。
 
 ## 已有功能
 
