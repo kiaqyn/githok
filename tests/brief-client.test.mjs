@@ -9,7 +9,7 @@ function harness(options={}){
   const jobs=new Map(),values=options.values||new Map(),changes=[];
   const storage={getItem:key=>values.get(key)||null,setItem:(key,value)=>{if(options.storageFailure)throw Error('quota');values.set(key,value);}};
   const data=(repo=a,extra={})=>({version:1,fullName:repo.owner+'/'+repo.name,fingerprint:'a'.repeat(64),at:time,original:repo.description,evidenceSource:'description',translation:'这是中文简介。',summary:'这是简短中文速览。',audience:null,...extra});
-  const client=createBriefController({storage,getCurrent:()=>current,getLanguage:()=>language,isVisible:()=>visible,now:()=>time,setTimer:(fn,ms)=>{jobs.set(++counter,{fn,at:time+ms});return counter;},clearTimer:id=>jobs.delete(id),fetchImpl:async url=>{calls++;return options.fetchImpl?options.fetchImpl(url,data):Response.json(data(current));},onChange:()=>changes.push({repo:current?.name,state:current?client.peek(current):null})});
+  const client=createBriefController({storage,getCurrent:()=>current,getLanguage:()=>language,isVisible:()=>visible,now:()=>time,requestTimeout:options.requestTimeout,setTimer:(fn,ms)=>{jobs.set(++counter,{fn,at:time+ms});return counter;},clearTimer:id=>jobs.delete(id),fetchImpl:async(url,init)=>{calls++;return options.fetchImpl?options.fetchImpl(url,data,init):Response.json(data(current));},onChange:()=>changes.push({repo:current?.name,state:current?client.peek(current):null})});
   async function advance(ms=650){time+=ms;for(const [id,job] of [...jobs])if(job.at<=time){jobs.delete(id);job.fn();}await flush();}
   return {client,data,values,changes,advance,calls:()=>calls,current:repo=>{current=repo;},language:value=>{language=value;},visible:value=>{visible=value;}};
 }
@@ -60,4 +60,27 @@ test('destroying a controller prevents late callbacks after the page is gone',as
 test('cache entries are bounded and malformed saved cache is ignored',async()=>{
   const values=new Map([['githok:briefs:v1',JSON.stringify({v:1,entries:[['invalid',{}],[briefKey(a),{version:1}]]})]]);
   const h=harness({values});assert.equal(h.client.peek(a).state,'idle');h.client.select(a);await h.advance();assert.equal(h.calls(),1);h.client.destroy();
+});
+test('an unconfigured service disables retries for this session and for other projects',async()=>{
+  const h=harness({fetchImpl:()=>Response.json({code:'BRIEF_NOT_CONFIGURED'},{status:503})});
+  h.client.select(a);await h.advance();assert.equal(h.client.peek(a).state,'disabled');
+  h.client.select(a,{manual:true});await h.advance();assert.equal(h.calls(),1);
+  h.current(b);h.client.select(b);await h.advance();assert.equal(h.calls(),1);assert.equal(h.client.peek(b).state,'disabled');h.client.destroy();
+});
+test('a stalled request times out, aborts and releases the queue without an automatic retry',async()=>{
+  let signal;const h=harness({requestTimeout:1000,fetchImpl:(url,data,init)=>{signal=init?.signal;return new Promise(()=>{});}});
+  h.client.select(a);await h.advance();assert.equal(h.client.peek(a).state,'pending');
+  await h.advance(1001);assert.equal(h.client.peek(a).state,'error');assert.equal(h.client.peek(a).error,'BRIEF_TIMEOUT');assert.equal(signal.aborted,true);
+  await h.advance(5000);assert.equal(h.calls(),1);h.client.select(a,{manual:true});await h.advance(0);assert.equal(h.calls(),2);h.client.destroy();
+});
+test('a stalled JSON body is also bounded, and a late result cannot replace a newer retry',async()=>{
+  let finishBody;const h=harness({requestTimeout:1000,fetchImpl:(url,data)=>h.calls()===1?{ok:true,json:()=>new Promise(resolve=>{finishBody=()=>resolve(data(a,{summary:'已经超时的旧摘要。'}));})}:Response.json(data(a,{summary:'新请求的摘要。'}))});
+  h.client.select(a);await h.advance();await h.advance(1001);assert.equal(h.client.peek(a).error,'BRIEF_TIMEOUT');
+  h.client.select(a,{manual:true});await h.advance(0);assert.equal(h.client.peek(a).data.summary,'新请求的摘要。');
+  finishBody();await flush();assert.equal(h.client.peek(a).data.summary,'新请求的摘要。');h.client.destroy();
+});
+test('a queued project resumes after an older request stalls instead of waiting forever',async()=>{
+  const h=harness({requestTimeout:1000,fetchImpl:(url,data)=>url.endsWith('project-1')?new Promise(()=>{}):Response.json(data(b))});
+  h.client.select(a);await h.advance();h.current(b);h.client.select(b);await h.advance(1001);await h.advance();
+  assert.equal(h.client.peek(b).state,'ready');assert.equal(h.calls(),2);h.client.destroy();
 });

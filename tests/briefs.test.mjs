@@ -53,12 +53,14 @@ test('provider errors and incomplete or invalid output are not retried or expose
   }
 });
 test('concurrency and hourly allowance are bounded and cached results bypass the allowance',async()=>{
-  let resolve,time=Date.now(),calls=0;
-  const service=new BriefService({...config,now:()=>time,maxCallsPerHour:1,fetchImpl:()=>{calls++;return new Promise(r=>{resolve=r;});}});
-  const first=service.get('owner','repo');await new Promise(r=>setTimeout(r,0));
+  let resolve,started,time=Date.now(),calls=0;
+  let dispatched=new Promise(r=>{started=r;});
+  const service=new BriefService({...config,now:()=>time,maxCallsPerHour:1,fetchImpl:()=>{calls++;started();return new Promise(r=>{resolve=r;});}});
+  // A zero-delay timer does not guarantee async fingerprinting has finished.
+  const first=service.get('owner','repo');await dispatched;
   await assert.rejects(service.get('owner','other'),e=>e.code==='BRIEF_LIMIT');resolve(result(answer));await first;
   assert.equal((await service.get('owner','repo')).cached,true);assert.equal(calls,1);
-  time+=3600_001;const second=service.get('owner','other');await new Promise(r=>setTimeout(r,0));resolve(result(answer));await second;assert.equal(calls,2);
+  time+=3600_001;dispatched=new Promise(r=>{started=r;});const second=service.get('owner','other');await dispatched;resolve(result(answer));await second;assert.equal(calls,2);
 });
 test('existing feed evidence avoids another GitHub read; private project metadata is never used',async()=>{
   let calls=0;const github=new GitHubService({cacheFile:null,fetchImpl:async()=>{calls++;return Response.json({private:true});}});

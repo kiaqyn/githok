@@ -49,3 +49,9 @@ test('generation failure preserves the original with a manual retry rather than 
   const p=await page(t,()=>Response.json({code:'BRIEF_FAILED'},{status:502}));assert.equal(p.$('.repo-description').textContent,repos[0].description);assert.equal(p.$('.brief-retry').hidden,false);assert.equal(p.$('.brief-controls').hidden,true);
   await sleep(25);assert.equal(p.briefCalls(),1);p.$('.brief-retry').click();await sleep(15);assert.equal(p.briefCalls(),2);assert.equal(p.$('.repo-description').textContent,repos[0].description);
 });
+test('disabled Chinese overviews show a clear status with no nonfunctional retry button',async t=>{
+  const p=await page(t,()=>Response.json({code:'BRIEF_NOT_CONFIGURED'},{status:503}));
+  assert.match(p.$('.brief-status').textContent,/暂未启用/);assert.equal(p.$('.brief-retry').hidden,true);
+  p.$('.brief-retry').click();await sleep(15);assert.equal(p.briefCalls(),1);
+  p.$('#next-button').click();await sleep(15);assert.equal(p.briefCalls(),1);assert.equal(p.$('.brief-retry').hidden,true);assert.equal(p.$('.repo-description').textContent,repos[1].description);
+});

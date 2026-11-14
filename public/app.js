@@ -193,9 +193,9 @@ function paintBrief(){
   intro.querySelector('.repo-description').textContent=zh&&ready?(mode==='summary'?entry.data.summary:mode==='translation'?entry.data.translation:description(r)):description(r);
   intro.querySelectorAll('[data-brief-mode]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.briefMode===mode)));
   proof.textContent=ready?t(entry.data.evidenceSource==='readme-excerpt'?'briefFromReadme':'briefFromDescription')+(mode==='summary'&&entry.data.audience?' · '+t('briefAudience',{audience:entry.data.audience}):''):'';
-  const errors={BRIEF_NOT_CONFIGURED:'briefDisabled',BRIEF_INSUFFICIENT:'briefInsufficient',BRIEF_LIMIT:'briefLimit',BRIEF_CHANGED:'briefChanged',BRIEF_BUSY:'briefBusy',BRIEF_COOLDOWN:'briefCooldown'};
+  const errors={BRIEF_NOT_CONFIGURED:'briefDisabled',BRIEF_TIMEOUT:'briefTimeout',BRIEF_INSUFFICIENT:'briefInsufficient',BRIEF_LIMIT:'briefLimit',BRIEF_CHANGED:'briefChanged',BRIEF_BUSY:'briefBusy',BRIEF_COOLDOWN:'briefCooldown'};
   status.hidden=!zh||ready;status.textContent=entry.state==='pending'?t('briefPreparing'):t(errors[entry.error]||(entry.state==='disabled'?'briefDisabled':'briefFailed'));
-  retry.hidden=!zh||ready||entry.state==='pending';retry.disabled=entry.retryAt>Date.now();
+  retry.hidden=!zh||ready||entry.state==='pending'||entry.state==='disabled';retry.disabled=entry.retryAt>Date.now();
   document.querySelector('.project-stage')?.classList.toggle('has-brief',zh);
   requestAnimationFrame(syncSwipeMode);
 }
