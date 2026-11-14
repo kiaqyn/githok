@@ -6,9 +6,15 @@ import { build } from 'esbuild';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const hosting=JSON.parse(await readFile(resolve(root,'.openai/hosting.json'),'utf8'));
 if(!hosting.project_id || hosting.static)throw new Error('Worker hosting requires a project_id and no static directory.');
-const files={ 'index.html':'text/html; charset=utf-8','app.js':'text/javascript; charset=utf-8','i18n.js':'text/javascript; charset=utf-8','style.css':'text/css; charset=utf-8','favicon.svg':'image/svg+xml','manifest.webmanifest':'application/manifest+json' };
+const files={ 'index.html':'text/html; charset=utf-8','app.js':'text/javascript; charset=utf-8','i18n.js':'text/javascript; charset=utf-8','session.js':'text/javascript; charset=utf-8','briefs.js':'text/javascript; charset=utf-8','style.css':'text/css; charset=utf-8','favicon.svg':'image/svg+xml','manifest.webmanifest':'application/manifest+json' };
 const assets={};
 for(const [name,type] of Object.entries(files))assets['/'+name]={type,body:await readFile(resolve(root,'public',name),'utf8')};
+for(const name of ['orbit-v1.svg','paper-v1.svg'])assets['/art/'+name]={type:'image/svg+xml',body:await readFile(resolve(root,'public/art',name),'utf8')};
+assets['/art/silver-sculpture-v1.png']={type:'image/png',encoding:'base64',body:(await readFile(resolve(root,'public/art/silver-sculpture-v1.png'))).toString('base64')};
+for(const name of ['SpaceGrotesk','Manrope']){
+  assets['/fonts/'+name+'.ttf']={type:'font/ttf',encoding:'base64',body:(await readFile(resolve(root,'public/fonts',name+'.ttf'))).toString('base64')};
+  assets['/fonts/'+name+'-OFL.txt']={type:'text/plain; charset=utf-8',body:await readFile(resolve(root,'public/fonts',name+'-OFL.txt'),'utf8')};
+}
 let seed=null;
 try { seed=JSON.parse(await readFile(resolve(root,'cloud/public-feed-snapshot.json'),'utf8')); } catch {}
 await mkdir(resolve(root,'dist/server'),{recursive:true});

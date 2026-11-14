@@ -28,6 +28,8 @@ test('cloud default feed can use a dated real snapshot only when upstream fails'
   const fallback=await (await app.fetch(new Request('https://test.invalid/api/feed'))).json();
   assert.equal(fallback.stale,true);assert.equal(fallback.fetchedAt,seed.fetchedAt);assert.equal(fallback.warning,'offline');
   assert.equal((await app.fetch(new Request('https://test.invalid/api/feed?q=another'))).status,502);
+  const streamFallback=await(await app.fetch(new Request('https://test.invalid/api/feed?stream=1'))).json();
+  assert.equal(streamFallback.nextCursor,null);assert.equal(streamFallback.hasMore,false);assert.equal(streamFallback.coverageLimited,true);
   const expired=createWorker({github,seed,now:()=>time+8*86_400_000});
   assert.equal((await expired.fetch(new Request('https://test.invalid/api/feed'))).status,502);
 });

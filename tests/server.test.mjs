@@ -48,6 +48,7 @@ test('HTTP routes provide safety headers, validate API input and never serve arb
   const base='http://127.0.0.1:'+server.address().port;
   const home=await fetch(base);assert.equal(home.status,200);assert.match(home.headers.get('content-security-policy'),/script-src 'self'/);assert.match(await home.text(),/GitHok/);
   const translations=await fetch(base+'/i18n.js');assert.equal(translations.status,200);assert.match(await translations.text(),/chooseLanguage/);
+  const checkpoint=await fetch(base+'/session.js');assert.equal(checkpoint.status,200);assert.match(await checkpoint.text(),/readResume/);
   assert.equal((await fetch(base+'/api/feed?page=999')).status,400);assert.equal(calls,0);
   assert.equal((await fetch(base+'/server.mjs')).status,404);assert.equal((await fetch(base+'/api/feed',{method:'POST'})).status,405);
   const feed=await (await fetch(base+'/api/feed')).json();assert.equal(feed.items.length,1);assert.equal(calls,1);
